@@ -2,6 +2,10 @@ import tkinter as tk
 from tkinter import Text
 from pymongo import MongoClient
 from neo4j import GraphDatabase
+#import re
+import networkx as nx
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # MongoDB and Neo4j connection details
 MONGO_URI = "mongodb://localhost:27017"
@@ -14,9 +18,94 @@ def select_all(event):
     event.widget.icursor(tk.END)
     return "break"
 
+def query_mongo(query):
+    """Query MongoDB for the given property."""
+    try:
+        client = MongoClient(MONGO_URI)
+        db = client["NoSQLProj"]  # Replace with your MongoDB database name
+        collection = db["MoodleDB"]  # Replace with your MongoDB collection name
+        
+        # Query the MongoDB collection
+        result = collection.find_one({"$or": [
+            {"Entry": {"$regex": query, "$options": "i"}},
+            {"Entry Name": {"$regex": query, "$options": "i"}},
+            {"Protein names": {"$regex": query, "$options": "i"}},
+            {"Gene Names": {"$regex": query, "$options": "i"}},
+            {"Organism": query},
+            {"Sequence": query},
+            {"InterPro": {"$regex": query, "$options": "i"}}
+        ]})
+        
+        if result:
+            # Format and return the result
+            return (f"MongoDB Result:\n"
+                    f"Entry: {result.get('Entry', '')}\n"
+                    f"Entry Name: {result.get('Entry Name', '')}\n"
+                    f"Protein Names: {result.get('Protein names', '')}\n"
+                    f"Gene Names: {result.get('Gene Names', '')}\n"
+                    f"Organism: {result.get('Organism', '')}\n"
+                    f"EC Number: {result.get('EC number', '')}\n"
+                    f"InterPro: {result.get('InterPro', '')}")
+        else:
+            return "MongoDB Result: No data found for the given query."
+    except Exception as e:
+        return f"MongoDB Result: Connection failed - {e}"
+
+def query_neo4j(query):
+    """Query Neo4j for the given property."""
+    try:
+        driver = GraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH)
+        with driver.session() as session:
+            # Query the Neo4j database
+            result = session.run(
+                """
+                MATCH (n)
+                WHERE n.entry =~ '(?i).*' + $query + '.*' 
+                      OR n.entryName =~ '(?i).*' + $query + '.*' 
+                      OR n.geneName =~ '(?i).*' + $query + '.*' 
+                      OR n.proteinNames =~ '(?i).*' + $query + '.*'
+                RETURN n
+                """, parameters={"query": query}  # Properly pass query parameter
+            )
+            record = result.single()
+            if record:
+                node = record["n"]
+                # Format and return the result
+                return (f"Neo4j Result:\n"
+                        f"Entry: {node.get('entry', '')}\n"
+                        f"Entry Name: {node.get('entryName', '')}\n"
+                        f"Protein Name: {node.get('proteinNames', '')}\n"
+                        f"Gene Name: {node.get('geneName', '')}\n"
+                        f"EC Numbers: {node.get('ec_numbers', '')}\n"
+                        f"InterPro: {node.get('interPro', '')}")
+            else:
+                return "Neo4j Result: No data found for the given query."
+    except Exception as e:
+        return f"Neo4j Result: Connection failed - {e}"
+
 def execute_query():
-    """Placeholder function for the Search button."""
-    print(f"Executing query: {query_entry.get()}")
+    """Execute the query on MongoDB and Neo4j and update the UI."""
+    query = query_entry.get().strip()
+    if not query:
+        return
+    
+    # Query MongoDB
+    mongo_result_text = query_mongo(query)
+    mongo_result.config(state="normal")
+    mongo_result.delete(1.0, tk.END)
+    mongo_result.insert(tk.END, mongo_result_text)
+    mongo_result.config(state="disabled")
+    
+    # Query Neo4j
+    neo4j_result_text = query_neo4j(query)
+    neo4j_result.config(state="normal")
+    neo4j_result.delete(1.0, tk.END)
+    neo4j_result.insert(tk.END, neo4j_result_text)
+    neo4j_result.config(state="disabled")
+
+    # Query Neo4J for graph data
+    current_nodes, current_edges = query_neo4j_graph(query)
+    draw_graph(current_nodes, current_edges)
 
 # Create the main window
 root = tk.Tk()
