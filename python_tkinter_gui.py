@@ -82,6 +82,132 @@ def query_neo4j(query):
                 return "Neo4j Result: No data found for the given query."
     except Exception as e:
         return f"Neo4j Result: Connection failed - {e}"
+    
+# Global variables for zoom and graph data
+zoom_factor = 1.0
+current_nodes, current_edges = set(), []
+
+def query_neo4j_graph(query):
+    """Query Neo4j for graph data."""
+    try:
+        driver = GraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH)
+        with driver.session() as session:
+            # Fetch nodes and relationships for the graph
+            result = session.run(
+                """
+                MATCH (n)-[r]-(m)
+                WHERE n.entry =~ '(?i).*' + $query + '.*' 
+                      OR n.entryName =~ '(?i).*' + $query + '.*' 
+                      OR n.proteinNames =~ '(?i).*' + $query + '.*'
+                      OR n.geneName =~ '(?i).*' + $query + '.*'
+                RETURN n, r, m LIMIT 50
+                """, parameters={"query": query}
+            )
+            nodes, edges = set(), []
+            for record in result:
+                n = record["n"]
+                m = record["m"]
+                r = record["r"]
+                nodes.add((n["entry"], n["entryName"]))
+                nodes.add((m["entry"], m["entryName"]))
+                edges.append((n["entry"], m["entry"], r["weight"] if "weight" in r else 1))
+            return nodes, edges
+    except Exception as e:
+        print(f"Neo4j graph query failed: {e}")
+        return set(), []
+
+def draw_graph(nodes, edges):
+    
+    global graph_canvas, zoom_factor
+
+    # Clear existing graph
+    for widget in right_frame.winfo_children():
+        if isinstance(widget, FigureCanvasTkAgg):
+            widget.get_tk_widget().destroy()
+
+    # Create a NetworkX graph
+    G = nx.DiGraph()
+    for node in nodes:
+        G.add_node(node[0], label=node[1])
+    for edge in edges:
+        G.add_edge(edge[0], edge[1], weight=edge[2])
+
+    # Create a Matplotlib figure
+    fig, ax = plt.subplots(figsize=(8 * zoom_factor, 6 * zoom_factor))
+    pos = nx.spring_layout(G)  # Use spring layout for graph positioning
+
+    # Draw the graph
+    nx.draw_networkx_nodes(G, pos, ax=ax, node_size=500, node_color="skyblue")
+    nx.draw_networkx_edges(G, pos, ax=ax, arrowstyle="->", arrowsize=20)
+    nx.draw_networkx_labels(G, pos, ax=ax, labels={n: n for n in G.nodes})
+    edge_labels = nx.get_edge_attributes(G, 'weight')
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, ax=ax)
+
+    ax.axis("off")  # Turn off the axis
+
+    # Embed the Matplotlib figure in tkinter
+    canvas = FigureCanvasTkAgg(fig, master=right_frame)
+    canvas_widget = canvas.get_tk_widget()
+    canvas_widget.grid(row=1, column=0, sticky="nsew")
+    canvas.draw() 
+
+    '''global canvas, zoom_factor
+
+    # Clear existing graph
+    for widget in right_frame.winfo_children():
+        if isinstance(widget, FigureCanvasTkAgg):
+            widget.get_tk_widget().destroy()
+
+    # Create a NetworkX graph
+    G = nx.DiGraph()
+    for node in nodes:
+        G.add_node(node[0], label=node[1])
+    for edge in edges:
+        G.add_edge(edge[0], edge[1], weight=edge[2])
+
+    # Create a Matplotlib figure
+    fig, ax = plt.subplots(figsize=(8 * zoom_factor, 6 * zoom_factor))
+    pos = nx.spring_layout(G)  # Use spring layout for graph positioning
+
+    # Draw the graph
+    nx.draw_networkx_nodes(G, pos, ax=ax, node_size=500, node_color="skyblue")
+    nx.draw_networkx_edges(G, pos, ax=ax, arrowstyle="->", arrowsize=20)
+    nx.draw_networkx_labels(G, pos, ax=ax, labels={n: n for n in G.nodes})
+    edge_labels = nx.get_edge_attributes(G, 'weight')
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, ax=ax)
+
+    ax.axis("off")  # Turn off the axis
+
+    # Enable interactive scrolling and zooming
+    def on_scroll(event):
+        """Handle zooming via trackpad."""
+        global zoom_factor
+        if event.button == 'up':  # Scroll up
+            zoom_factor += 0.1
+        elif event.button == 'down':  # Scroll down
+            zoom_factor = max(0.2, zoom_factor - 0.1)
+        draw_graph(nodes, edges)  # Redraw graph with updated zoom factor
+
+    fig.canvas.mpl_connect('scroll_event', on_scroll)  # Connect scroll event
+
+    # Embed the Matplotlib figure in tkinter
+    canvas = FigureCanvasTkAgg(fig, master=graph_canvas)
+    canvas_widget = canvas.get_tk_widget()
+    canvas_widget.pack(fill=tk.BOTH, expand=True)
+    canvas.draw()'''
+
+def zoom_in():
+    """Zoom in the graph."""
+    global zoom_factor
+    zoom_factor += 0.2
+    draw_graph(current_nodes, current_edges)
+
+def zoom_out():
+    """Zoom out the graph."""
+    global zoom_factor
+    zoom_factor = max(0.2, zoom_factor - 0.2)
+    draw_graph(current_nodes, current_edges)
+
 
 def execute_query():
     """Execute the query on MongoDB and Neo4j and update the UI."""
@@ -103,9 +229,11 @@ def execute_query():
     neo4j_result.insert(tk.END, neo4j_result_text)
     neo4j_result.config(state="disabled")
 
-    # Query Neo4J for graph data
+    # Query Neo4j for graph data
+    global current_nodes, current_edges
     current_nodes, current_edges = query_neo4j_graph(query)
     draw_graph(current_nodes, current_edges)
+
 
 # Create the main window
 root = tk.Tk()
@@ -179,5 +307,9 @@ zoom_in_button.grid(row=2, column=0, sticky="e", padx=10, pady=5)
 
 zoom_out_button = tk.Button(right_frame, text="-", font=("Arial", 12), width=2)
 zoom_out_button.grid(row=2, column=0, sticky="w", padx=10, pady=5)
+
+zoom_in_button.config(command=zoom_in)
+zoom_out_button.config(command=zoom_out)
+
 
 root.mainloop()
