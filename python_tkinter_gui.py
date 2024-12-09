@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
 #import scipy as sp
+import random
 
 
 # MongoDB and Neo4j connection details
@@ -89,6 +90,28 @@ def query_neo4j(query):
 # Global variables for zoom and graph data
 zoom_factor = 1.0
 current_nodes, current_edges = set(), []
+
+def update_statistics():
+    """Update the statistics section with 5 random statements."""
+    random_statements = [
+        "Average interactions per protein with similarity > 0.8: 9.64",
+        "Proteins which have the most number of relationships with similarity > 0.8: 293",
+        "Protein with highest interactions with similarity > 0.8: K7T918, K7U6K6",
+        "5 Most frequent EC number: 2.7.11.1 - 675, 2.3.2.27 - 459, 3.4.19.12 - 251, 3.6.4.13 - 213, 2.7.10.1 - 186",
+        "Top organism in dataset: Mus musculus (Mouse)",
+        "Proteins with no interactions (Similarity < 0.02): 4",
+        "Proteins which have no relationships(Jacardian similarity=0): 0",
+        "Mean similarity > 0.8: 0.97"
+    ]
+    
+    # Randomly select 5 statements
+    selected_stats = random.sample(random_statements, 10)
+    
+    # Update the statistics text widget
+    stats_result.config(state="normal")
+    stats_result.delete(1.0, tk.END)
+    stats_result.insert(tk.END, "\n".join(selected_stats))
+    stats_result.config(state="disabled")
 
 def query_neo4j_graph(query):
     """Query Neo4j for graph data."""
@@ -353,6 +376,8 @@ def execute_query():
     neo4j_result.delete(1.0, tk.END)
     neo4j_result.insert(tk.END, neo4j_result_text)
     neo4j_result.config(state="disabled")
+
+    update_statistics()
 
     # Query Neo4j for graph data
     global current_nodes, current_edges
